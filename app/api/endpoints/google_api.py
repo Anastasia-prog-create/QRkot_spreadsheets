@@ -7,16 +7,18 @@ from app.core.google_client import get_service
 from app.core.user import current_superuser
 from app.crud.charity_project import charity_project_crud
 from app.models import CharityProject
-from app.schemas.charity_project import CharityProjectGoogle
+from app.schemas.google_api import CharityProjectGoogle
 from app.services.google_api import (set_user_permissions, spreadsheets_create,
                                      spreadsheets_update_value)
 
 router = APIRouter()
 
+GOOGLE_TABLE_URL = 'https://docs.google.com/spreadsheets/d/{}'
+
 
 @router.get(
     '/',
-    response_model=list[CharityProjectGoogle],
+    response_model=CharityProjectGoogle,
     dependencies=[Depends(current_superuser)],
 )
 async def get_report(
@@ -35,4 +37,4 @@ async def get_report(
         projects,
         wrapper_services
     )
-    return projects
+    return {'url': GOOGLE_TABLE_URL.format(spreadsheetid)}

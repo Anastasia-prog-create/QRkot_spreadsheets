@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base import CRUDBase
@@ -25,22 +25,14 @@ class CharityProjectCRUD(CRUDBase):
         self,
         session: AsyncSession,
     ) -> list[CharityProject]:
-        collection_time = (
-            (func.julianday(CharityProject.close_date) -
-             func.julianday(CharityProject.create_date)) * 24 * 60 * 60
-        )
         projects = await session.execute(
-            select([
-                CharityProject.name,
-                collection_time.label('collection_time'),
-                CharityProject.description
-            ]).where(
+            select(
+                CharityProject
+            ).where(
                 CharityProject.fully_invested
-            ).order_by(
-                collection_time
             )
         )
-        return projects.all()
+        return projects.scalars().all()
 
 
 charity_project_crud = CharityProjectCRUD(CharityProject)

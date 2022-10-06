@@ -39,8 +39,3 @@ class CharityProjectDB(CharityProjectCreate):
 
     class Config:
         orm_mode = True
-
-
-class CharityProjectGoogle(BaseModel):
-    name: str
-    description: str
