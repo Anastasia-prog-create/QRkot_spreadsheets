@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 from http import HTTPStatus
 from operator import itemgetter
@@ -13,54 +14,54 @@ FORMAT = "%Y/%m/%d %H:%M:%S"
 
 ROWS = 100
 COLUMNS = 11
+TABLE_SIZE_ERROR = 'Максимальный размер таблицы: {} строк {} столбцов.'
 
-TABLE_SIZE_ERROR = 'Максимальное количество строк в таблице {}.'
+SPREADSHEET_BODY = dict(
+    properties=dict(
+        title='',
+        locale='ru_RU',
+    ),
+    sheets=[dict(
+        properties=dict(
+            sheetType='GRID',
+            sheetId=0,
+            title='Лист1',
+            gridProperties=dict(
+                rowCount=ROWS,
+                columnCount=COLUMNS,
+            )
+        )
+    )]
+)
 
-
-def create_spreadsheet_body(datetime):
-    return {
-        'properties': {
-            'title': f'Отчет на {datetime}',
-            'locale': 'ru_RU'
-        },
-        'sheets': [{
-            'properties': {'sheetType': 'GRID',
-                           'sheetId': 0,
-                           'title': 'Лист1',
-                           'gridProperties': {'rowCount': ROWS,
-                                              'columnCount': COLUMNS}}
-        }]
-    }
-
-
-def creat_table_head(datetime):
-    return [
-        ['Отчет от', f'{datetime}'],
-        ['Топ проектов по скорости закрытия'],
-        ['Название проекта', 'Время сбора', 'Описание']
-    ]
-#  Мне кажется с функциями код выглядит более читабельно,
-#  нет непонятных подстановок по индексам в функциях ниже,
-#  а так как константы все равно нужно было копировать,
-#  предполагаю, что памяти расходую примерно одинаково.
-#  Сделала на свой страх и риск)
+TABLE_HEAD = [
+    ['Отчет от', ''],
+    ['Топ проектов по скорости закрытия'],
+    ['Название проекта', 'Время сбора', 'Описание']
+]
 
 
 async def spreadsheets_create(
     wrapper_services: Aiogoogle,
+    spreadsheet_body=None,
 ) -> str:
-    now_date_time = datetime.now().strftime(FORMAT)
     service = await wrapper_services.discover('sheets', 'v4')
-    spreadsheet_body = create_spreadsheet_body(now_date_time)
+    spreadsheet_body = (
+        deepcopy(SPREADSHEET_BODY) if spreadsheet_body is None
+        else spreadsheet_body
+    )
+    spreadsheet_body['properties']['title'] = (
+        f'Отчет на {datetime.now().strftime(FORMAT)}'
+    )
     response = await wrapper_services.as_service_account(
         service.spreadsheets.create(json=spreadsheet_body)
     )
-    spreadsheetid = response['spreadsheetId']
-    return spreadsheetid
+    spreadsheet_id = response['spreadsheetId']
+    return spreadsheet_id
 
 
 async def set_user_permissions(
-        spreadsheetid: str,
+        spreadsheet_id: str,
         wrapper_services: Aiogoogle
 ) -> None:
     permissions_body = {'type': 'user',
@@ -69,23 +70,28 @@ async def set_user_permissions(
     service = await wrapper_services.discover('drive', 'v3')
     await wrapper_services.as_service_account(
         service.permissions.create(
-            fileId=spreadsheetid,
+            fileId=spreadsheet_id,
             json=permissions_body,
             fields="id"
         ))
 
 
 async def spreadsheets_update_value(
-        spreadsheetid: str,
+        spreadsheet_id: str,
         projects: List[CharityProjectDB],
-        wrapper_services: Aiogoogle
+        wrapper_services: Aiogoogle,
+        table_head=None,
 ) -> None:
-    now_date_time = datetime.now().strftime(FORMAT)
     service = await wrapper_services.discover('sheets', 'v4')
-    table_head = creat_table_head(now_date_time)
+    table_head = (
+        deepcopy(TABLE_HEAD) if table_head is None
+        else table_head
+    )
+    table_head[0][1] = datetime.now().strftime(FORMAT)
     sorted_projects = sorted(((
         project.name, project.close_date - project.create_date, project.description
     ) for project in projects), key=itemgetter(1))
+    project_columns_count = len(sorted_projects[0])
     table_values = [
         *table_head,
         *[list(map(str, project)) for project in sorted_projects],
@@ -94,15 +100,15 @@ async def spreadsheets_update_value(
         'majorDimension': 'ROWS',
         'values': table_values
     }
-    if len(table_values) > ROWS:
+    if (len(table_values) > ROWS or project_columns_count > COLUMNS):
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=TABLE_SIZE_ERROR.format(ROWS),
+            detail=TABLE_SIZE_ERROR.format(ROWS, COLUMNS),
         )
     await wrapper_services.as_service_account(
         service.spreadsheets.values.update(
-            spreadsheetId=spreadsheetid,
-            range=f'R1C1:R{len(table_values)}C3',
+            spreadsheetId=spreadsheet_id,
+            range=f'R1C1:R{len(table_values)}C{project_columns_count}',
             valueInputOption='USER_ENTERED',
             json=update_body
         )
